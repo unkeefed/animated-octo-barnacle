@@ -194,13 +194,13 @@ async function subjectsPanel(el, draft) {
           ${subjects.length === 0 ? `<p class="settings-hint-text" style="padding:12px 0">No subjects yet — add one below.</p>` : ''}
           ${subjects.map(s => `
             <div class="subj-row" data-id="${s.id}">
-              <button class="subj-icon-btn" data-id="${s.id}" style="background:${s.color}22;color:${s.color};border:1px solid ${s.color}44">
+              <button class="subj-icon-btn" data-id="${s.id}" style="background:${esc(s.color)}22;color:${esc(s.color)};border:1px solid ${esc(s.color)}44">
                 ${esc(s.icon || '📚')}
               </button>
               <div class="subj-row-body">
                 <input class="subj-name-input" value="${esc(s.name)}" data-id="${s.id}" maxlength="40" placeholder="Subject name">
                 <div class="subj-row-meta">
-                  <input type="color" class="subj-color-input ctx-color-input" value="${s.color}" data-id="${s.id}" title="Colour">
+                  <input type="color" class="subj-color-input ctx-color-input" value="${esc(s.color)}" data-id="${s.id}" title="Colour">
                   <span class="subj-goal-label">Goal:</span>
                   <input type="number" class="subj-goal-input num-input" value="${s.dailyGoalMins}" min="5" max="480" step="5" data-id="${s.id}">
                   <span class="subj-goal-unit">min/day</span>
@@ -315,7 +315,7 @@ function contextsPanel(el, draft) {
         <div class="card" id="ctx-card">
           ${draft.contexts.map((c, i) => `
             <div class="ctx-edit-row" data-i="${i}">
-              <input class="ctx-color-input" type="color" value="${c.color}" data-i="${i}" title="Colour">
+              <input class="ctx-color-input" type="color" value="${esc(c.color)}" data-i="${i}" title="Colour">
               <input class="ctx-label-input" value="${esc(c.label)}" data-i="${i}" maxlength="20" placeholder="Label">
               <label class="ctx-study-toggle" title="Study context — shows subject picker on tasks">
                 <input type="checkbox" class="ctx-is-study" data-i="${i}" ${c.isStudy ? 'checked' : ''}>
