@@ -60,14 +60,19 @@ export default function App() {
   const navigate = useNavigate()
 
   const activePath = '/' + location.pathname.split('/')[1]
+  const onFocus = activePath === '/focus'
 
   return (
     <>
+      {/* FocusPage stays mounted at all times so the timer isn't reset on tab switch */}
+      <div className="page-scroll" style={{ display: onFocus ? 'block' : 'none' }}>
+        <FocusPage />
+      </div>
+
       {/* Page content */}
-      <div className="page-scroll">
+      <div className="page-scroll" style={{ display: onFocus ? 'none' : 'block' }}>
         <Routes>
           <Route path="/"         element={<InboxPage />} />
-          <Route path="/focus"    element={<FocusPage />} />
           <Route path="/insights" element={<InsightsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Routes>
