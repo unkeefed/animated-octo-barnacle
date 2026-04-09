@@ -137,7 +137,7 @@ function sessionPanel(el, draft) {
         </div>
       </div>
     </div>
-  \`
+  `
   wireInputs(el, draft)
 
   el.querySelector('#day-grid').addEventListener('click', e => {
