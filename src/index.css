@@ -39,6 +39,7 @@
   --text-3:     #9896B0;
 
   --nav-h: 64px;
+  --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 
@@ -71,6 +72,7 @@ body {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
+  padding-top: var(--safe-top);
   padding-bottom: calc(var(--nav-h) + var(--safe-bottom) + 16px);
   -webkit-overflow-scrolling: touch;
 }
