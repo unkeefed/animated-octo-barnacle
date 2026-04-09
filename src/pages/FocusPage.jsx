@@ -31,6 +31,14 @@ function fmt(secs) {
   return `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
 }
 
+function fmtRemain(secs) {
+  if (secs >= 0) return fmt(secs)
+  const abs = Math.abs(secs)
+  const m = Math.floor(abs / 60)
+  const s = abs % 60
+  return `+${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+}
+
 export default function FocusPage() {
   const today = todayStr()
 
@@ -51,7 +59,10 @@ export default function FocusPage() {
 
   const intervalRef  = useRef(null)
   const wakeLockRef  = useRef(null)
-  const startTimeRef = useRef(null)
+  const startTimeRef = useRef(null)   // ISO string saved to DB
+  const startMsRef   = useRef(null)   // numeric ms for wall-clock math
+  const totalRef     = useRef(null)   // total secs (ref avoids stale closure in tick)
+  const pausedAtRef  = useRef(null)   // ms when pause began
 
   // Load accent color from settings
   useEffect(() => {
@@ -84,15 +95,8 @@ export default function FocusPage() {
 
   // ── Timer tick ─────────────────────────────────────────────────────────────
   const tick = useCallback(() => {
-    setRemain(r => {
-      if (r <= 1) {
-        clearInterval(intervalRef.current)
-        setPhase('wrap')
-        releaseWakeLock()
-        return 0
-      }
-      return r - 1
-    })
+    const elapsed = Math.floor((Date.now() - startMsRef.current) / 1000)
+    setRemain(totalRef.current - elapsed)
   }, [])
 
   // ── Start session ──────────────────────────────────────────────────────────
@@ -107,6 +111,9 @@ export default function FocusPage() {
     setRating(null)
     setNote('')
     startTimeRef.current = new Date().toISOString()
+    startMsRef.current   = Date.now()
+    totalRef.current     = secs
+    pausedAtRef.current  = null
     setPhase('active')
     requestWakeLock()
     intervalRef.current = setInterval(tick, 1000)
@@ -114,8 +121,14 @@ export default function FocusPage() {
 
   function togglePause() {
     if (paused) {
+      // Shift startMsRef forward by the paused duration so wall-clock math stays correct
+      if (pausedAtRef.current !== null) {
+        startMsRef.current += Date.now() - pausedAtRef.current
+        pausedAtRef.current = null
+      }
       intervalRef.current = setInterval(tick, 1000)
     } else {
+      pausedAtRef.current = Date.now()
       clearInterval(intervalRef.current)
     }
     setPaused(p => !p)
@@ -185,7 +198,23 @@ export default function FocusPage() {
     releaseWakeLock()
   }, [])
 
-  const pct = remain / total
+  // ── iOS / background-tab sync ──────────────────────────────────────────────
+  // iOS Safari throttles setInterval heavily when the tab is backgrounded.
+  // When the page becomes visible again, snap remain to the true wall-clock value.
+  useEffect(() => {
+    if (phase !== 'active' || paused) return
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        const elapsed = Math.floor((Date.now() - startMsRef.current) / 1000)
+        setRemain(totalRef.current - elapsed)
+      }
+    }
+    document.addEventListener('visibilitychange', onVisibility)
+    return () => document.removeEventListener('visibilitychange', onVisibility)
+  }, [phase, paused])
+
+  const isOvertime = remain < 0
+  const pct = remain > 0 ? remain / total : 0
   const elapsed = Math.round((total - remain) / 60) || duration
 
   // ── Render: setup ──────────────────────────────────────────────────────────
@@ -311,7 +340,7 @@ export default function FocusPage() {
           padding: '20px 0 16px',
         }}>
           <div style={{ position: 'relative', width: 160, height: 160 }}>
-            <TimerRing pct={pct} color={paused ? 'var(--text-3)' : taskColor} />
+            <TimerRing pct={pct} color={paused ? 'var(--text-3)' : isOvertime ? 'var(--warning, #F59E0B)' : taskColor} />
             <div style={{
               position: 'absolute', inset: 0,
               display: 'flex', flexDirection: 'column',
@@ -319,13 +348,14 @@ export default function FocusPage() {
             }}>
               <p style={{
                 margin: 0, fontSize: 40, fontWeight: 600,
-                color: 'var(--text-1)', letterSpacing: '-0.03em',
+                color: isOvertime ? 'var(--warning, #F59E0B)' : 'var(--text-1)',
+                letterSpacing: '-0.03em',
                 fontFamily: '"JetBrains Mono", monospace',
               }}>
-                {fmt(remain)}
+                {fmtRemain(remain)}
               </p>
               <p style={{ margin: '3px 0 0', fontSize: 11, color: 'var(--text-3)' }}>
-                {paused ? 'paused' : 'focus'}
+                {paused ? 'paused' : isOvertime ? 'overtime' : 'focus'}
               </p>
             </div>
           </div>
