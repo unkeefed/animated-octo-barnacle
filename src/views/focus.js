@@ -21,16 +21,29 @@ export async function renderFocus(container) {
     <div id="session-stage"></div>
   `
 
-  if (timerInterval && sessionData.taskId) {
-    const task    = await db.tasks.get(sessionData.taskId)
-    const ctx     = settings.contexts.find(c => c.id === task?.context)
+  if (sessionData.phase === 'active') {
+    const task    = sessionData.taskId ? await db.tasks.get(sessionData.taskId) : null
+    const ctx     = settings.contexts.find(c => c.id === sessionData.context)
     const subject = sessionData.subjectId ? subjects.find(s => s.id === sessionData.subjectId) : null
-    // Compute how much time has elapsed (wall-clock) so the timer is accurate
-    // even after the user switched sections or the webapp was backgrounded.
-    const totalSecs     = (sessionData.durationMins || settings.defaultDuration) * 60
-    const elapsedSecs   = Math.floor((Date.now() - sessionData.startedAt) / 1000)
-    const initialRemain = Math.max(0, totalSecs - elapsedSecs)
-    showActive(container, task, ctx, subject, sessionData.durationMins, settings, initialRemain)
+    // Wall-clock elapsed time, accounting for any accumulated pause time
+    const totalSecs   = (sessionData.durationMins || settings.defaultDuration) * 60
+    const now         = Date.now()
+    const pausedMs    = (sessionData.totalPausedMs || 0) + (sessionData.pausedAtMs ? now - sessionData.pausedAtMs : 0)
+    const elapsedSecs = Math.floor((now - sessionData.startedAt - pausedMs) / 1000)
+    if (elapsedSecs >= totalSecs) {
+      // Session expired while the user was on another section
+      sessionData.phase = 'wrap'
+      clearTimers()
+      finishSession(container, task, ctx, subject, settings)
+    } else {
+      const initialRemain = totalSecs - elapsedSecs
+      showActive(container, task, ctx, subject, sessionData.durationMins, settings, initialRemain)
+    }
+  } else if (sessionData.phase === 'wrap') {
+    const task    = sessionData.taskId ? await db.tasks.get(sessionData.taskId) : null
+    const ctx     = settings.contexts.find(c => c.id === sessionData.context)
+    const subject = sessionData.subjectId ? subjects.find(s => s.id === sessionData.subjectId) : null
+    finishSession(container, task, ctx, subject, settings)
   } else {
     showSetup(container, tasks, settings, subjects)
   }
@@ -235,6 +248,7 @@ function showActive(container, task, ctx, subject, durationMins, settings, initi
   const isResume = initialRemain !== undefined
   const prev = sessionData
   sessionData = {
+    phase:          'active',
     taskId:         task?.id || null,
     goalId:         task?.goalId || null,
     context:        task?.context || null,
@@ -242,6 +256,8 @@ function showActive(container, task, ctx, subject, durationMins, settings, initi
     startedAt:      isResume ? prev.startedAt : Date.now(),
     durationMins:   durationMins || settings.defaultDuration,
     totalSecs,
+    totalPausedMs:  isResume ? (prev.totalPausedMs || 0) : 0,
+    pausedAtMs:     isResume ? (prev.pausedAtMs || null) : null,
     distractions:   isResume ? (prev.distractions || 0) : 0,
     distractionLog: isResume ? (prev.distractionLog || []) : [],
     qualityRating:  isResume ? prev.qualityRating : null,
@@ -336,7 +352,9 @@ function showActive(container, task, ctx, subject, durationMins, settings, initi
 
   timerInterval = setInterval(() => {
     if (paused) return
-    remainSecs--
+    // Use wall-clock so browser background throttling can't cause drift
+    const elapsed = Math.floor((Date.now() - sessionData.startedAt - (sessionData.totalPausedMs || 0)) / 1000)
+    remainSecs = totalSecs - elapsed
     const numEl = document.getElementById('timer-num')
     if (numEl) numEl.textContent = fmtTime(Math.max(0, remainSecs))
 
@@ -351,6 +369,7 @@ function showActive(container, task, ctx, subject, durationMins, settings, initi
     }
 
     if (remainSecs <= 0) {
+      sessionData.phase = 'wrap'
       clearTimers()
       pomodoroCount++
       window._apexHaptic?.('medium')
@@ -363,14 +382,23 @@ function showActive(container, task, ctx, subject, durationMins, settings, initi
   const pauseBtn = stage.querySelector('#pause-btn')
   pauseBtn.addEventListener('click', () => {
     paused = !paused
+    if (paused) {
+      sessionData.pausedAtMs = Date.now()
+    } else {
+      if (sessionData.pausedAtMs) {
+        sessionData.totalPausedMs = (sessionData.totalPausedMs || 0) + (Date.now() - sessionData.pausedAtMs)
+        sessionData.pausedAtMs = null
+      }
+    }
     pauseBtn.textContent = paused ? 'Resume' : 'Pause'
     setBadge(paused ? 'Paused' : 'Focus', paused ? '' : 'focus')
   })
 
   stage.querySelector('#end-btn').addEventListener('click', () => {
     clearTimers()
-    const elapsed = Math.max(1, Math.round((Date.now() - sessionData.startedAt) / 60000))
+    const elapsed = Math.max(1, Math.round((Date.now() - sessionData.startedAt - (sessionData.totalPausedMs || 0)) / 60000))
     sessionData.durationMins = elapsed
+    sessionData.phase = 'wrap'
     pomodoroCount++
     finishSession(container, task, ctx, subject, settings)
   })
@@ -411,6 +439,10 @@ async function updateActiveSubjectProgress(subject, settings) {
 
 // ─── FINISH ────────────────────────────────────────────────────────────────
 async function finishSession(container, task, ctx, subject, settings) {
+  // If we're no longer on the focus view, bail out.
+  // renderFocus will re-call us when the user navigates back (phase === 'wrap').
+  if (!container.querySelector('#session-stage')) return
+
   let distractTip = null
 
   if (settings.aiDistractionAlerts && settings.aiApiKey && sessionData.distractions > 0) {
@@ -544,12 +576,14 @@ function showWrap(container, task, ctx, subject, settings, distractTip = null) {
 
   stage.querySelector('#save-btn').addEventListener('click', async () => {
     await commitSession(settings, subject)
+    sessionData = {}
     const [tasks, subjects] = await Promise.all([loadTodayTasks(), getSubjects()])
     showSetup(container, tasks, settings, subjects)
   })
 
   stage.querySelector('#break-btn').addEventListener('click', async () => {
     await commitSession(settings, subject)
+    sessionData = {}
     const isLong = pomodoroCount > 0 && pomodoroCount % (settings.longBreakAfter || 4) === 0
     if (isLong) pomodoroCount = 0
     showBreak(container, isLong ? settings.longBreakLength : settings.breakLength, settings)
