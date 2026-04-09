@@ -25,7 +25,12 @@ export async function renderFocus(container) {
     const task    = await db.tasks.get(sessionData.taskId)
     const ctx     = settings.contexts.find(c => c.id === task?.context)
     const subject = sessionData.subjectId ? subjects.find(s => s.id === sessionData.subjectId) : null
-    showActive(container, task, ctx, subject, sessionData.durationMins, settings)
+    // Compute how much time has elapsed (wall-clock) so the timer is accurate
+    // even after the user switched sections or the webapp was backgrounded.
+    const totalSecs     = (sessionData.durationMins || settings.defaultDuration) * 60
+    const elapsedSecs   = Math.floor((Date.now() - sessionData.startedAt) / 1000)
+    const initialRemain = Math.max(0, totalSecs - elapsedSecs)
+    showActive(container, task, ctx, subject, sessionData.durationMins, settings, initialRemain)
   } else {
     showSetup(container, tasks, settings, subjects)
   }
@@ -217,7 +222,7 @@ async function loadSubjectProgress(subjects, settings) {
 }
 
 // ─── ACTIVE ───────────────────────────────────────────────────────────────
-function showActive(container, task, ctx, subject, durationMins, settings) {
+function showActive(container, task, ctx, subject, durationMins, settings, initialRemain) {
   clearTimers()
   setBadge('Focus', 'focus')
 
@@ -225,17 +230,22 @@ function showActive(container, task, ctx, subject, durationMins, settings) {
   const totalSecs   = (durationMins || settings.defaultDuration) * 60
   const circumference = 2 * Math.PI * 68
 
+  // When resuming after a section switch, preserve the original start time and
+  // accumulated state; only reset everything for a genuinely fresh session.
+  const isResume = initialRemain !== undefined
+  const prev = sessionData
   sessionData = {
     taskId:         task?.id || null,
     goalId:         task?.goalId || null,
     context:        task?.context || null,
     subjectId:      subject?.id || null,
-    startedAt:      Date.now(),
+    startedAt:      isResume ? prev.startedAt : Date.now(),
     durationMins:   durationMins || settings.defaultDuration,
-    distractions:   0,
-    distractionLog: [],
-    qualityRating:  null,
-    notes:          '',
+    totalSecs,
+    distractions:   isResume ? (prev.distractions || 0) : 0,
+    distractionLog: isResume ? (prev.distractionLog || []) : [],
+    qualityRating:  isResume ? prev.qualityRating : null,
+    notes:          isResume ? (prev.notes || '') : '',
   }
 
   const stage = container.querySelector('#session-stage')
@@ -307,8 +317,22 @@ function showActive(container, task, ctx, subject, durationMins, settings) {
     updateActiveSubjectProgress(subject, settings)
   }
 
-  let remainSecs = totalSecs
+  // Restore distraction badge when resuming after a section switch
+  if (isResume && sessionData.distractions > 0) {
+    const badge = document.getElementById('distract-badge')
+    if (badge) badge.textContent = sessionData.distractions
+  }
+
+  let remainSecs = initialRemain !== undefined ? initialRemain : totalSecs
   let paused     = false
+
+  // Initialise ring to the correct position immediately
+  const initPct    = remainSecs / totalSecs
+  const initOffset = (circumference * (1 - initPct)).toFixed(1)
+  const ringEl     = document.getElementById('ring-fg')
+  if (ringEl) ringEl.setAttribute('stroke-dashoffset', initOffset)
+  const numEl0 = document.getElementById('timer-num')
+  if (numEl0) numEl0.textContent = fmtTime(Math.max(0, remainSecs))
 
   timerInterval = setInterval(() => {
     if (paused) return

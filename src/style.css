@@ -2273,3 +2273,5 @@ body { overflow-x: hidden; }
   50%  { transform: scale(1.06); }
   100% { transform: scale(1); }
 }
+
+/* ─── No transitions ─────────────────────────────────────────────────────── */

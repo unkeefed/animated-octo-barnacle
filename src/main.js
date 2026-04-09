@@ -2,7 +2,7 @@ import './style.css'
 import { db, getSettings, getSessionsForRange, getFocusMinutesForDate } from './db/index.js'
 import { initRouter, navigateTo } from './router.js'
 import { requestNotificationPermission, scheduleMorningReminder, sendNotification, playBeep } from './utils/notifications.js'
-import { callGemini, buildMorningPrompt, todayStr } from './utils/index.js'
+import { callGemini, buildMorningPrompt, todayStr, dateStr } from './utils/index.js'
 import { applyTheme } from './views/settings.js'
 import { initialSync, startAutoSync, onSyncStatus, getLastSyncTime } from './sync.js'
 
@@ -213,7 +213,7 @@ async function boot() {
   try {
     const yesterday = new Date()
     yesterday.setDate(yesterday.getDate() - 1)
-    const cutoff = yesterday.toISOString().slice(0, 10)
+    const cutoff = dateStr(yesterday)
     await db.time_blocks.where('date').below(cutoff).delete()
   } catch {}
 
@@ -275,7 +275,7 @@ function weekRange() {
   const today  = new Date()
   const monday = new Date(today)
   monday.setDate(today.getDate() - ((today.getDay() + 6) % 7))
-  return { fromStr: monday.toISOString().slice(0, 10) }
+  return { fromStr: dateStr(monday) }
 }
 
 boot().catch(err => {

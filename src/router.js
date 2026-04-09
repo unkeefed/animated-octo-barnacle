@@ -36,24 +36,10 @@ export async function navigateTo(tab) {
   const view = document.getElementById('view')
   if (!view) return
 
-  // Animate out
-  view.classList.add('view-exit')
-  await new Promise(r => setTimeout(r, 120))
   view.innerHTML = ''
-  view.classList.remove('view-exit')
-  view.classList.add('view-enter')
 
   try {
     await views[tab]?.(view)
-    // Trigger enter animation after content is painted
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        view.classList.add('view-enter-active')
-        setTimeout(() => {
-          view.classList.remove('view-enter', 'view-enter-active')
-        }, 220)
-      })
-    })
   } catch (err) {
     console.error(`[Apex Focus] Render error on ${tab}:`, err)
     view.innerHTML = `

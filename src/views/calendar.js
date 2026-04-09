@@ -26,8 +26,8 @@ export async function renderCalendar(container) {
     const from = new Date(); from.setDate(from.getDate() - 7)
     const to   = new Date(); to.setDate(to.getDate() + 28)
     await generateRecurringPlanned(
-      from.toISOString().slice(0,10),
-      to.toISOString().slice(0,10)
+      toDateStr(from),
+      toDateStr(to)
     ).catch(() => {})
     await Promise.all([
       renderWeekSummary(subjects, settings),
@@ -514,7 +514,10 @@ function openScheduleModal(defaultDate, subjects, onSave) {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────
 function toDateStr(date) {
-  return date.toISOString().slice(0, 10)
+  const y = date.getFullYear()
+  const m = String(date.getMonth() + 1).padStart(2, '0')
+  const d = String(date.getDate()).padStart(2, '0')
+  return `${y}-${m}-${d}`
 }
 
 function formatMinsCompact(mins) {
